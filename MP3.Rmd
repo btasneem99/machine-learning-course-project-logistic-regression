@@ -1,0 +1,399 @@
+---
+title: "SDS/CSC 293 Mini-Project 3: Multiple Regression"
+author: "Group 1: Bushra T. and Tina L."
+date: "Wednesday, March 27^th^, 2019"
+output:
+  html_document:
+    highlight: tango
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+    toc_float:
+      collapsed: true
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+# Load all your packages here:
+library(tidyverse)
+library(yardstick)
+
+# Set default behavior for all code chunks here:
+knitr::opts_chunk$set(
+  echo = TRUE, warning = FALSE, message = FALSE,
+  fig.width = 16/2, fig.height = 9/2
+)
+
+# Set seed value of random number generator here. This is in order to get
+# "replicable" randomness, so that any results based on random sampling or
+# resampling are replicable everytime you knit this file. Why use a seed value
+# of 76? For no other reason than 76 is one of my favorite numbers:
+# https://www.youtube.com/watch?v=xjJ7FheCkCU
+set.seed(76)
+```
+
+You will be submiting an entry to Kaggle's [DonorsChoose.org Application Screening: Predict whether teachers' project proposals are accepted](https://www.kaggle.com/c/donorschoose-application-screening/){target="_blank"} by fitting a **logistic regression** model $\hat{f}(x)$.
+
+
+
+***
+
+
+
+# EDA
+
+Read in data provided by Kaggle for this competition. They are organized in the `data/` folder of this RStudio project:
+
+```{r}
+training <- read_csv("data/train.csv")
+test <- read_csv("data/test.csv")
+sample_submission <- read_csv("data/sample_submission.csv")
+```
+
+Before performing any model fitting, you should always conduct an exploratory data analysis. This will help guide and inform your model fitting. 
+
+## Look at your data!
+
+Always, ALWAYS, **ALWAYS** start by looking at your raw data. This gives you visual sense of what information you have to help build your predictive models. To get a full description of each variable, read the data dictionary in the `data_description.txt` file in the `data/` folder.
+
+Note that the following code chunk has `eval = FALSE` meaning "don't evaluate this chunk with knitting" because `.Rmd` files won't knit if they include a `View()`:
+
+```{r, eval = FALSE}
+View(training)
+glimpse(training)
+
+View(test)
+glimpse(test)
+```
+
+In particular, pay close attention to the variables and variable types in the
+`sample_submission.csv`. Your submission must match this exactly.
+
+```{r}
+glimpse(sample_submission)
+```
+
+## Data wrangling
+
+As much as possible, try to do all your data wrangling here:
+
+```{r}
+training <- training %>% 
+  mutate(truth = factor(project_is_approved, levels = c(1, 0)),
+         project_grade_category = factor(project_grade_category, levels = c("Grades PreK-2", "Grades 3-5", "Grades 6-8", "Grades 9-12")))
+```
+
+
+***
+
+
+
+# Minimally viable product
+
+## Fit model on training
+
+Fit a logistic regression model $\widehat{f}_1$ with only an intercept term on all the training data. In other words, your model will not use any predictor variables. Save this in `model_1`. What is the uniquely fitted probability?
+
+```{r}
+model_1 <- glm(project_is_approved~1, "binomial", training)
+```
+
+
+## Estimate of your Kaggle score
+
+Use the `yardstick` package to get an estimate of your Kaggle score: the area under the ROC curve (AUC). Crossvalidation is not necessary as with no predictor variables, we are in very little danger of overfitting the model. 
+
+```{r}
+training_model_1 <- model_1 %>% 
+  broom::augment(newdata = training, type.predict = "response")
+
+training_model_1 %>% 
+  roc_auc(truth, .fitted)
+```
+
+We use `type.predict = "response"` as we want the predicted probabilities, not the default log-odds predictions. The estimate of our Kaggle score is 0.5.
+
+## Make predictions on test
+
+Apply your `model_1` fitted model to the test data. What is the uniquely predicted probability?
+
+```{r}
+test_model_1 <- model_1 %>% 
+  broom::augment(newdata = test, type.predict = "response")
+
+unique(test_model_1$.fitted)
+```
+
+The uniquely predicted probability is ~0.8477!
+
+## Create your submission CSV
+
+```{r}
+sample_submission %>% 
+  mutate(project_is_approved = 0.848) %>% 
+  write_csv(path = "data/submission_model_1.csv")
+```
+
+
+## Screenshot of your Kaggle score
+
+Our score based on our submission's "Area under the Receiver Operating Characteristic Curve" was 0.5.
+
+![](score_screenshot_model_1.png){ width=100% }
+
+
+
+***
+
+
+
+# Due diligence
+
+## Plot ROC curve
+
+Use the `yardstick` package to plot the ROC curve:
+
+```{r}
+training_model_1 %>% 
+  roc_curve(truth, .fitted) %>% 
+  autoplot() 
+```
+
+
+
+***
+
+
+
+# Reaching for the stars
+
+## Fit model on training
+
+Fit a logistic regression model $\widehat{f}_2$ using a single numerical predictor variable $x$ on all the training data. Save this in `model_2`. Then display a single visualization that shows:
+
+* The relationship between outcome variable $y$ and your numerical predictor variable $x$ with black points
+* The relationship between the fitted probabilities $\widehat{p}$ from model $\widehat{f}_2$ and your numerical predictor variable $x$ with a red curve
+* The fitted probabilities $\widehat{p}$ from model $\widehat{f}_1$ with a horizontal blue line
+
+at the same time.
+
+```{r}
+model_2 <- glm(project_is_approved~teacher_number_of_previously_posted_projects, "binomial", training)
+
+training_model_2 <- model_2 %>% 
+  broom::augment(newdata = training, type.predict = "response") 
+
+ggplot(training_model_2) +
+  geom_point(aes(x = teacher_number_of_previously_posted_projects, y = project_is_approved)) +
+  geom_smooth(aes(x = teacher_number_of_previously_posted_projects, y = .fitted), color = "red") +
+  geom_line(data = training_model_1, aes(x = teacher_number_of_previously_posted_projects, y = .fitted), color = "blue") +
+  labs(x = "Number of previously posted projects by teacher", y = "Probability of a project being approved") 
+```
+
+
+## Estimate of your Kaggle score
+
+Use the `yardstick` package to get an estimate of your Kaggle score: the area under the ROC curve (AUC). Crossvalidation is not necessary as with only 1 predictor variable and so many points, we are in very little danger of overfitting the model. 
+
+```{r}
+training_model_2 %>% 
+  roc_auc(truth, .fitted)
+```
+
+The estimate of our Kaggle score is ~0.5607.
+
+## Make predictions on test
+
+Apply your `model_2` fitted model to the test data and display a histogram of the predicted probabilities.
+
+```{r}
+test_model_2 <- model_2 %>% 
+  broom::augment(newdata = test, type.predict = "response")
+
+ggplot(test_model_2, aes(.fitted)) +
+  geom_histogram(binwidth = 0.01) +
+  labs(x = "Predicted probability", y = "Count")
+```
+
+
+## Create your submission CSV
+
+```{r}
+sample_submission %>% 
+  mutate(project_is_approved = test_model_2$.fitted) %>% 
+  write_csv(path = "data/submission_model_2.csv")
+```
+
+## Screenshot of your Kaggle score
+
+Our score based on our submission's "Area under the Receiver Operating Characteristic Curve" was 0.56522.
+
+![](score_screenshot_model_2.png){ width=100% }
+
+
+## Plot ROC curve
+
+Use the `yardstick` package to plot the ROC curve:
+
+```{r}
+training_model_2 %>% 
+  roc_curve(truth, .fitted) %>% 
+  autoplot() 
+```
+
+
+
+***
+
+
+
+# Point of diminishing returns
+
+## Fit model on training
+
+Fit a logistic regression model $\widehat{f}_3$ using a single categorical predictor variable $x$ on all the training data. Save this in `model_3`. Then display a single visualization that shows:
+
+* The relationship between the fitted probabilities $\widehat{p}$ from model $\widehat{f}_3$ and your categorical predictor variable $x$
+* The fitted probabilities $\widehat{p}$ from model $\widehat{f}_1$ with a horizontal blue line
+
+at the same time.
+
+```{r}
+model_3 <- glm(project_is_approved~project_grade_category, "binomial", training) 
+
+training_model_3 <- model_3 %>% 
+  broom::augment(newdata = training, type.predict = "response") 
+
+ggplot() +
+  geom_point(data = training_model_3, aes(x = project_grade_category, y = .fitted)) +
+  geom_line(data = training_model_1, aes(x = project_grade_category, y = .fitted, group = 1), color = "blue") +
+  labs(x = "Grade category of project", y = "Probability of a project being approved") 
+```
+
+
+## Estimate of your Kaggle score
+
+Use the `yardstick` package to get an estimate of your Kaggle score: the area under the ROC curve (AUC). Crossvalidation is not necessary as with only 1 predictor variable and so many points, we are in very little danger of overfitting the model. 
+
+```{r}
+training_model_3 %>% 
+  roc_auc(truth, .fitted)
+```
+
+The estimate of our Kaggle score is ~0.5115.
+
+## Make predictions on test
+
+Apply your `model_3` fitted model to the test data and display a histogram of the predicted probabilities.
+
+```{r}
+test_model_3 <- model_3 %>% 
+  broom::augment(newdata = test, type.predict = "response")
+
+ggplot(test_model_3, aes(.fitted)) +
+  geom_histogram(binwidth = 0.004) +
+  labs(x = "Predicted probability", y = "Count")
+```
+
+
+## Create your submission CSV
+
+```{r}
+sample_submission %>% 
+  mutate(project_is_approved = test_model_3$.fitted) %>% 
+  write_csv(path = "data/submission_model_3.csv")
+```
+
+
+## Screenshot of your Kaggle score
+
+Our score based on our submission's "Area under the Receiver Operating Characteristic Curve" was 0.51156.
+
+![](score_screenshot_model_3.png){ width=100% }
+
+
+## Plot ROC curve
+
+Use the `yardstick` package to plot the ROC curve:
+
+```{r}
+training_model_3 %>% 
+  roc_curve(truth, .fitted) %>% 
+  autoplot() 
+```
+
+
+***
+
+
+# Polishing the cannonball
+
+## Fit model on training
+
+Fit a logistic regression model $\widehat{f}_4$ using a multiple variables on all the training data. Save this in `model_4`. Then display a single visualization that shows:
+
+* The relationship between the fitted probabilities $\widehat{p}$ from model $\widehat{f}_3$ and your predictor variables
+* The fitted probabilities $\widehat{p}$ from model $\widehat{f}_1$ with a horizontal blue line
+
+at the same time.
+
+```{r}
+model_4 <- glm(project_is_approved~project_subject_categories+project_grade_category+school_state+teacher_prefix+teacher_number_of_previously_posted_projects, "binomial", training) 
+
+training_model_4 <- model_4 %>% 
+  broom::augment(newdata = training, type.predict = "response") 
+```
+
+For this model, we are using four categorical predictor variables, `project_subject_categories`, `project_grade_category`, `school_state`, `teacher_prefix`, and one numerical predictor variable, `teacher_number_of_previously_posted_projects`. 
+
+## Estimate of your Kaggle score
+
+Use the `yardstick` package to get an estimate of your Kaggle score: the area under the ROC curve (AUC). 
+
+```{r}
+training_model_4 %>% 
+  roc_auc(truth, .fitted)
+```
+
+The estimate of our Kaggle score is ~0.5896.
+
+## Make predictions on test
+
+Apply your `model_4` fitted model to the test data and display a histogram of the predicted probabilities.
+
+```{r}
+test_model_4 <- model_4 %>% 
+  broom::augment(newdata = test, type.predict = "response")
+
+ggplot(test_model_4, aes(.fitted)) +
+  geom_histogram(binwidth = 0.01) +
+  scale_x_continuous(limits = c(0.7, 1)) +
+  labs(x = "Predicted probability", y = "Count") 
+```
+
+A few values aren't represented in this histogram, as their predicated probability is < 0.7, but because there are so few of them, they wouldn't show up in the visualization anyways.
+
+## Create your submission CSV
+
+```{r}
+sample_submission %>% 
+  mutate(project_is_approved = ifelse(is.na(test_model_4$.fitted), 0.8477, test_model_4$.fitted)) %>% 
+  write_csv(path = "data/submission_model_4.csv")
+```
+
+
+## Screenshot of your Kaggle score
+
+Our score based on our submission's "Area under the Receiver Operating Characteristic Curve" was 0.58820.
+
+![](score_screenshot_model_4.png){ width=100% }
+
+## Plot ROC curve
+
+Use the `yardstick` package to plot the ROC curve:
+
+```{r}
+training_model_4 %>% 
+  roc_curve(truth, .fitted) %>% 
+  autoplot() 
+```
